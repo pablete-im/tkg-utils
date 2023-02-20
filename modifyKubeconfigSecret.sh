@@ -7,12 +7,14 @@ Help()
 {
    # Display Help
    echo "This script modifies the kubeconfig secret associated to a specific TKG Workload cluster in the management cluster, replacing the sever URL by the one specified as an argument."
+   echo "This script requires the context to be set up to point a Management Cluster!."
    echo
    echo "Syntax: modifyKubeconfigSecret.sh -c <CLUSTER NAME> -f <FQDN> [-h]"
    echo "options:"
-   echo "c     TKG Cluster name. This parameter is mandatory!"
-   echo "f     New FQDN to be used for the Workload cluster API server. This parameter is mandatory!"
-   echo "h     Print this Help."
+   echo " -c     TKG Cluster name. This parameter is mandatory!"
+   echo " -f     New FQDN to be used for the Workload cluster API server. This parameter is mandatory!"
+   echo " -n     Namespace. This parameter can be set to work on a specific namespace. For example, management cluster objects are stored in the tkg-system namespace. Workload cluster objects are stored by default in the default namespace, and this otpion is not needed."
+   echo " -h     Print this Help."
    echo
 }
 
@@ -21,7 +23,7 @@ Help()
 ############################################################
 
 # Get the options
-while getopts "c:f:h" option; do
+while getopts "c:f:n:h" option; do
    case $option in
       h) # display Help
          Help
@@ -30,6 +32,8 @@ while getopts "c:f:h" option; do
 	 CLUSTER_NAME=$OPTARG;;
       f) # Enter a FQDN
          FQDN=$OPTARG;;	      
+      n) # Namespace
+	 NAMESPACE=$OPTARG;;
      \?) # Invalid option
          Help
          exit 1;;
@@ -44,7 +48,13 @@ if [ -z "$CLUSTER_NAME" ] || [ -z "$FQDN" ]; then
         exit 1
 fi
 
-kubectl get secret $CLUSTER_NAME-kubeconfig -o jsonpath='{.data.value}' | base64 -d > kubeconfig-secret.yaml 
+if [ -z "$NAMESPACE" ]; then
+	NAMESPACE_OPTS=""
+else
+	NAMESPACE_OPTS="-n $NAMESPACE"
+fi
+
+kubectl get secret $CLUSTER_NAME-kubeconfig -o jsonpath='{.data.value}' $NAMESPACE_OPTS | base64 -d > kubeconfig-secret.yaml 
 
 echo "Checking current value:"
 cat kubeconfig-secret.yaml | yq '.clusters[0].cluster.server'
@@ -55,9 +65,9 @@ SECRET_DATA_ENCODED=$(cat kubeconfig-secret.yaml | base64 -w 0)
 
 rm kubeconfig-secret.yaml
 
-kubectl patch secret $CLUSTER_NAME-kubeconfig --type merge -p "{\"data\":{\"value\": \"$SECRET_DATA_ENCODED\"}}"
+kubectl patch secret $CLUSTER_NAME-kubeconfig $NAMESPACE_OPTS --type merge -p "{\"data\":{\"value\": \"$SECRET_DATA_ENCODED\"}}"
 
 echo "Checking modified value:"
-kubectl get secret  $CLUSTER_NAME-kubeconfig -o jsonpath='{.data.value}' | base64 -d | yq '.clusters[0].cluster.server'
+kubectl get secret  $CLUSTER_NAME-kubeconfig $NAMESPACE_OPTS -o jsonpath='{.data.value}' | base64 -d | yq '.clusters[0].cluster.server'
 
 exit 0
